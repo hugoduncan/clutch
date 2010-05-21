@@ -73,12 +73,12 @@
 
 (defmacro #^{:private true} check-and-use-document
   [doc & body]
-  `(if-let [id# (~doc :_id)]
-     (binding [config 
-               (assoc config :name 
+  `(if-let [id# (:_id ~doc)]
+     (binding [config
+               (assoc config :name
                    (str (config :name) "/" id# "?rev=" (:_rev ~doc)))]
        (do ~@body))
-     (throw 
+     (throw
       (IllegalArgumentException. "A valid document is required."))))
 
 ;; quasiquote from ClojureQL
