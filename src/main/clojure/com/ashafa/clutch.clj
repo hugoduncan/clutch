@@ -301,29 +301,35 @@
 
 (defmulti update-document
   "Takes document and a map and merges it with the original. When a function
-   and a vector of keys are supplied as the second and third argument, the 
+   and a vector of keys are supplied as the second and third argument, the
    value of the keys supplied are upadated with the result of the function of
    their values (see: #'clojure.core/update-in)."
-  (fn [& args] 
+  (fn [& args]
     (let [targ (second args)]
       (cond (fn? targ)  :fn
             (map? targ) :map
-            :else (throw (IllegalArgumentException. 
-                          "A map or function is needed to update a document."))))))
+            (nil? targ) :updated
+            :else (throw (IllegalArgumentException.
+                          "A map or function or updated document is needed to update a document."))))))
 
-(defmethod update-document :fn 
+(defmethod update-document :fn
   [document update-fn update-keys]
   (check-and-use-document document
     (couchdb-request config :put nil
                        (update-in document update-keys update-fn))))
 
-(defmethod update-document :map 
+(defmethod update-document :map
   [document merge-map]
   (check-and-use-document document
     (couchdb-request config :put nil (merge document merge-map))))
 
+(defmethod update-document :updated
+  [document]
+  (check-and-use-document document
+    (couchdb-request config :put nil document)))
+
 (defn get-all-documents
-  "Returns the meta (_id and _rev) of all documents in a database. By adding 
+  "Returns the meta (_id and _rev) of all documents in a database. By adding
    {:include_docs true} to the map for optional querying options argument
    you can also get the documents data, not just their meta. Also takes an optional
    map for querying options, and a second map of {:key [keys]} to be POSTed.
