@@ -1,4 +1,4 @@
-;; Copyright (c) 2009 Chas Emerick, Tunde Ashafa
+;; Copyright (c) 2009 Chas Emerick
 ;; All rights reserved.
 
 ;; Redistribution and use in source and binary forms, with or without
@@ -43,8 +43,10 @@
             documents in a database/directory; the former will create the target
             database if necessary."}
   com.ashafa.clutchapp
-  (:require (clojure.contrib [logging :as log] [io :as io]))
-  (:use com.ashafa.clutch)
+  (:require [clojure.java.io :as jio]
+    (clojure.contrib [logging :as log]))
+  (:use com.ashafa.clutch
+    (clojure.contrib [io :only (slurp*)]))
   (:import java.io.File java.net.URL))
 
 (def +language->ext+ {"javascript" "js"
@@ -65,11 +67,11 @@
    extensions are trimmed in the process of creating :filename."
   [dir paths]
   (for [path paths
-        :let [f (io/file dir path)
+        :let [f (jio/file dir path)
               dot (.lastIndexOf path ".")]
         :when (.exists f)]
     [(-> path (subs 0 (if (neg? dot) (count path) dot)) keyword)
-     (io/slurp* f)]))
+     (slurp* f)]))
 
 (defn- load-view
   "Loads a view from a view directory, returning a map of
@@ -86,7 +88,7 @@
 (defn- load-views
   "Loads all views under the given design document root directory path."
   [design-doc-path]
-  (let [views-root (io/file design-doc-path "views")
+  (let [views-root (jio/file design-doc-path "views")
         view-dirs (filter #(.isDirectory %) (.listFiles views-root))]
     (->> view-dirs
       (map load-view)
@@ -122,7 +124,7 @@
   [dir-or-ddocs]
   (cond
     (or (string? dir-or-ddocs)
-      (instance? File dir-or-ddocs)) (->> dir-or-ddocs io/file .listFiles
+      (instance? File dir-or-ddocs)) (->> dir-or-ddocs jio/file .listFiles
                                        (filter #(.isDirectory %))
                                        (map load-design-doc))
     (sequential? dir-or-ddocs) dir-or-ddocs
@@ -142,7 +144,7 @@
   (let [doc (if (string? design-doc)
               (load-design-doc design-doc)
               design-doc)
-        url (io/as-url db-url)]
+        url (jio/as-url db-url)]
     (with-db url
       (when-not (database-info url)
         (throw (IllegalStateException. (str "Database at " db-url " does not exist."))))
@@ -160,7 +162,7 @@
    specified by the URL.  If the database does not exist, it will be created."
   [dir-or-ddocs db-url]
   (let [design-docs (load-all-ddocs dir-or-ddocs)
-        url (io/as-url db-url)]
+        url (jio/as-url db-url)]
     (when-not (database-info url)
       (create-database url))
     (doseq [dddir design-docs]
@@ -168,11 +170,11 @@
 
 (defn- write-view
   [views-dir [vname fns]]
-  (let [view-dir (io/file views-dir (name vname))]
+  (let [view-dir (jio/file views-dir (name vname))]
     (assert (or (.exists view-dir) (.mkdirs view-dir)))
     (doseq [[k v] fns
             :let [filename (-> k name (str \. *lang-ext*))]]
-      (-> view-dir (io/file filename) (io/spit v)))))
+      (-> view-dir (jio/file filename) (spit v)))))
 
 (defn clone
   "Clones the design document at the provided URL to the specified
@@ -180,17 +182,17 @@
    content in the destination directory."
   [design-doc-url dest-path]
   (let [[_ db-path ddoc-id] (re-find #"[^/](/[^/]+)/([^/]+/[^/]+)" design-doc-url)
-        db-url (-> design-doc-url io/as-url (URL. db-path))
+        db-url (-> design-doc-url jio/as-url (URL. db-path))
         ddoc (with-db db-url (get-document ddoc-id))
-        views-dir (io/file dest-path "views")
-        root-dir (io/file dest-path)]
+        views-dir (jio/file dest-path "views")
+        root-dir (jio/file dest-path)]
     (binding [*lang-ext* (-> ddoc :language +language->ext+)]
       (assert (or (.exists root-dir) (.mkdirs root-dir)))
-      (-> dest-path (io/file "_id") (io/spit (:_id ddoc)))
-      (-> dest-path (io/file "language") (io/spit (:language ddoc)))
+      (-> dest-path (jio/file "_id") (spit (:_id ddoc)))
+      (-> dest-path (jio/file "language") (spit (:language ddoc)))
       (assert (or (.exists views-dir) (.mkdirs views-dir)))
       (doseq [views (:views ddoc)]
-        (write-view (io/file dest-path "views") views)))))
+        (write-view (jio/file dest-path "views") views)))))
 
 (defn clone-all
   "Clones all of the design documents in the database rooted at the
@@ -198,21 +200,21 @@
    directory path.  This operation clobbers any existing
    content in the destination directory."
   [db-url dest-path]
-  (with-db (io/as-url db-url)
-    (doseq [ddoc-id (->> (get-all-documents {:startkey "_design/"
-                                             :endkey (str "_design/" *wildcard-collation-string*)})
+  (with-db (jio/as-url db-url)
+    (doseq [ddoc-id (->> (get-all-documents-meta {:startkey "_design/"
+                                                  :endkey (str "_design/" *wildcard-collation-string*)})
                      :rows (map :id))
             :let [[_ ddoc-name] (.split ddoc-id "/")]]
       (clone
         (-> db-url (str "/") URL. (URL. ddoc-id) .toExternalForm)
-        (io/file dest-path ddoc-name)))))
+        (jio/file dest-path ddoc-name)))))
 
 (defn clone-all-dbs
   "Clones all design documents from all databases at the couchdb instance
    specified by the URL to the destination path provided. This operation
    clobbers any existing content in the destination directory."
   [couch-url dest-path]
-  (doseq [db (-> couch-url io/as-url url->db-meta all-couchdb-databases)
-          :let [db-dest-dir (io/file dest-path db)]]
+  (doseq [db (-> couch-url jio/as-url url->db-meta all-databases)
+          :let [db-dest-dir (jio/file dest-path db)]]
     (assert (or (.exists db-dest-dir) (.mkdirs db-dest-dir)))
-    (clone-all (-> couch-url io/as-url (URL. db)) db-dest-dir)))
+    (clone-all (-> couch-url jio/as-url (URL. db)) db-dest-dir)))

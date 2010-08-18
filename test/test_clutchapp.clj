@@ -1,24 +1,24 @@
-(ns com.ashafa.test-clutchapp
- (:require [clojure.contrib.string :as string])
+(ns test-clutchapp
+ (:require [clojure.java.io :as jio]
+   [clojure.contrib.str-utils2 :as str])
  (:use
    (com.ashafa clutch clutchapp)
    clojure.test
-   (clojure.contrib
-     [io :only (slurp* file as-url)])))
+   (clojure.contrib [io :only (slurp*)])))
 
 (defn- content-map
   "Returns a map containing entries of
    [path-relative-to-root file-content]
    for each descendant files in root-dir."
   [root-dir]
-  (let [root-len (-> root-dir file .getAbsolutePath count)
-        files (->> root-dir file file-seq
+  (let [root-len (-> root-dir jio/file .getAbsolutePath count)
+        files (->> root-dir jio/file file-seq
                 (remove #(-> % .getName (.startsWith "."))))]
   (reduce
     (fn [s f]
       (if (.isDirectory f)
         s
-        (conj s [(->> f .getAbsolutePath (string/drop root-len))
+        (conj s [(-> f .getAbsolutePath (str/drop root-len))
                  (slurp* f)])))
     {} files)))
 
@@ -31,16 +31,16 @@
 ; mixing couchapp and clutch). - Chas
 (deftest- test-clone-and-push
   (let [clutchapp-test-db "http://localhost:5984/test-clutchapp"
-        app-root-path "src/test/resources/clutchapp"
-        clone-dir (doto (file (System/getProperty "java.io.tmpdir") (str "test-clutchapp-" (rand)))
+        app-root-path "test/clutchapp"
+        clone-dir (doto (jio/file (System/getProperty "java.io.tmpdir") (str "test-clutchapp-" (rand)))
                     .mkdir
                     .deleteOnExit)]
-    (println "Testing com.ashafa.test-clutchapp with output directory " clone-dir)
-    (is (nil? (database-info (as-url clutchapp-test-db))))
+    (println "Testing test-clutchapp with output directory " clone-dir)
+    (is (nil? (database-info (jio/as-url clutchapp-test-db))))
     (try
       (push-all app-root-path clutchapp-test-db)
       (clone-all clutchapp-test-db clone-dir)
       (is (= (content-map app-root-path)
             (content-map clone-dir)))
       (finally
-        (delete-database (as-url clutchapp-test-db))))))
+        (delete-database (jio/as-url clutchapp-test-db))))))

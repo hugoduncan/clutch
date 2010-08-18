@@ -26,18 +26,18 @@
 (ns #^{:author "Tunde Ashafa"}
   com.ashafa.clutch.utils
   (:require [clojure.contrib.json :as json])
+  (:use clojure.contrib.core)
   (:import java.net.URLEncoder))
-
 
 (defn uri-encode
   [string]
-  (.. URLEncoder (encode string) (replace "+" "%20")))
+  (-?> string (URLEncoder/encode "UTF-8") (.replace "+" "%20")))
 
 (defn map-to-query-str
   ([m]
      (map-to-query-str m true))
   ([m json-str-params?]
-     (let [kws (keys m)]
+     (when-let [kws (keys m)]
        (reduce 
         (fn [q kw]
           (let [k (if (keyword? kw) (name kw) kw)
@@ -52,12 +52,36 @@
     (apply (partial assoc init) options) 
     init))
 
-(defn get-database-url
+(defn set-field
+  "Set to private or protected field. field-name is a symbol or keyword.
+   This will presumably be added to clojure.contrib.reflect eventually...?"
+  [klass field-name obj value]
+  (-> klass
+    (.getDeclaredField (name field-name))
+    (doto (.setAccessible true))
+    (.set obj value)))
+
+(defn db-meta->url
   [db-meta]
   (str "http://"
        (if (:username db-meta)
          (str (:username db-meta) ":" (:password db-meta) "@"))
        (:host db-meta) ":" (:port db-meta) "/" (:name db-meta)))
+
+(defn url->db-meta
+  "Given a url, returns a map with slots aligned with *defaults*.
+   Supports usage of URLs with with-db, etc."
+  [url]
+  (let [java-url      (java.net.URL. url)
+        userinfo      (.getUserInfo java-url)
+        [m user pass] (if userinfo (re-matches #"([^:]+):(.*$)" userinfo))
+        url-port      (.getPort java-url)
+        port          (if (> url-port -1) url-port 5984)]
+    {:host     (.getHost java-url)
+     :port     port
+     :username user
+     :password pass
+     :name     (.getPath java-url)}))
 
 (defn get-mime-type
   [file]
@@ -79,4 +103,3 @@
   [bytes]
   (.replaceAll
    (.encode (sun.misc.BASE64Encoder.) bytes) "\n" ""))
-    
