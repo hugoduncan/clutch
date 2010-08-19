@@ -94,11 +94,58 @@
      (throw 
       (IllegalArgumentException. "A valid document is required."))))
 
+;; quasiquote from ClojureQL
+(defn self-eval?
+  "Check whether the given form is self-evaluating."
+  [obj]
+  (or (keyword?  obj)
+      (number?   obj)
+      (instance? Character obj)
+      (string?   obj)
+      (nil?      obj)))
+
+(defn flatten-map
+  "Flatten the keys and values of a map into a list."
+  [the-map]
+  (reduce (fn [result entry] (-> result
+                               (conj (key entry))
+                               (conj (val entry))))
+          [] the-map))
+
+(defn unquote?
+  "Tests whether the given form is of the form (unquote ...)."
+  [form]
+  (and (seq? form) (= (first form) `unquote)))
+
+(defn quasiquote*
+  "Worker for quasiquote macro. See docstring there. For use in macros."
+  [form]
+  (cond
+    (self-eval? form) form
+    (unquote? form)   (second form)
+    (symbol? form)    (list 'quote form)
+    (vector? form)    (vec (map quasiquote* form))
+    (map? form)       (apply hash-map (map quasiquote* (flatten-map form)))
+    (set? form)       (apply hash-set (map quasiquote* form))
+    (seq? form)       (list* `list (map quasiquote* form))
+    :else             (list 'quote form)))
+
+(defmacro quasiquote
+  "Quote the supplied form as quote does, but evaluate unquoted parts.
+
+  Example: (let [x 5] (quasiquote (+ ~x 6))) => (+ 5 6)"
+  [form]
+  (quasiquote* form))
 
 (defmacro with-clj-view-server
-  "Takes a map and serializes the values of each key as a string for use by the Clojure view server."
+  "Takes a map and serializes the values of each key as a string for use by
+   the Clojure view server."
   ([view-server-map]
-     (reduce #(assoc %1 %2 (pr-str (%2 view-server-map))) {} (keys view-server-map)))) 
+     `(hash-map
+       ~@(apply concat
+          (map
+           (fn [k] (vector k `(pr-str (quasiquote ~(k view-server-map)))))
+           (keys view-server-map))))))
 
 (defmacro with-db
   "Takes a string (database name) or map (database meta) with a body of forms. It 
